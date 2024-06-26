@@ -10,8 +10,10 @@ use ratatui::{
         Row, Sparkline, Table, Tabs, Wrap,
     },
 };
-
+use ratatui::style::Stylize;
 use crate::app::App;
+use crate::conv_coords;
+use crate::custom_map::CMap;
 
 pub fn draw(f: &mut Frame, app: &mut App) {
     let chunks = Layout::vertical([Constraint::Length(3), Constraint::Min(0)]).split(f.size());
@@ -27,209 +29,10 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     f.render_widget(tabs, chunks[0]);
     match app.tabs.index {
         0 => draw_first_tab(f, app, chunks[1]),
-        1 => draw_second_tab(f, app, chunks[1]),
-        2 => draw_third_tab(f, app, chunks[1]),
         _ => {}
     };
 }
 
-fn draw_first_tab(f: &mut Frame, app: &mut App, area: Rect) {
-    let chunks = Layout::vertical([
-        Constraint::Length(9),
-        Constraint::Min(8),
-        Constraint::Length(7),
-    ])
-    .split(area);
-    draw_gauges(f, app, chunks[0]);
-    draw_charts(f, app, chunks[1]);
-    draw_text(f, chunks[2]);
-}
-
-fn draw_gauges(f: &mut Frame, app: &mut App, area: Rect) {
-    let chunks = Layout::vertical([
-        Constraint::Length(2),
-        Constraint::Length(3),
-        Constraint::Length(1),
-    ])
-    .margin(1)
-    .split(area);
-    let block = Block::bordered().title("Graphs");
-    f.render_widget(block, area);
-
-    let label = format!("{:.2}%", app.progress * 100.0);
-    let gauge = Gauge::default()
-        .block(Block::new().title("Gauge:"))
-        .gauge_style(
-            Style::default()
-                .fg(Color::Magenta)
-                .bg(Color::Black)
-                .add_modifier(Modifier::ITALIC | Modifier::BOLD),
-        )
-        .use_unicode(app.enhanced_graphics)
-        .label(label)
-        .ratio(app.progress);
-    f.render_widget(gauge, chunks[0]);
-
-    let sparkline = Sparkline::default()
-        .block(Block::new().title("Sparkline:"))
-        .style(Style::default().fg(Color::Green))
-        .data(&app.sparkline.points)
-        .bar_set(if app.enhanced_graphics {
-            symbols::bar::NINE_LEVELS
-        } else {
-            symbols::bar::THREE_LEVELS
-        });
-    f.render_widget(sparkline, chunks[1]);
-
-    let line_gauge = LineGauge::default()
-        .block(Block::new().title("LineGauge:"))
-        .filled_style(Style::default().fg(Color::Magenta))
-        .line_set(if app.enhanced_graphics {
-            symbols::line::THICK
-        } else {
-            symbols::line::NORMAL
-        })
-        .ratio(app.progress);
-    f.render_widget(line_gauge, chunks[2]);
-}
-
-#[allow(clippy::too_many_lines)]
-fn draw_charts(f: &mut Frame, app: &mut App, area: Rect) {
-    let constraints = if app.show_chart {
-        vec![Constraint::Percentage(50), Constraint::Percentage(50)]
-    } else {
-        vec![Constraint::Percentage(100)]
-    };
-    let chunks = Layout::horizontal(constraints).split(area);
-    {
-        let chunks = Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)])
-            .split(chunks[0]);
-        {
-            let chunks =
-                Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
-                    .split(chunks[0]);
-
-            // Draw tasks
-            let tasks: Vec<ListItem> = app
-                .tasks
-                .items
-                .iter()
-                .map(|i| ListItem::new(vec![text::Line::from(Span::raw(*i))]))
-                .collect();
-            let tasks = List::new(tasks)
-                .block(Block::bordered().title("List"))
-                .highlight_style(Style::default().add_modifier(Modifier::BOLD))
-                .highlight_symbol("> ");
-            f.render_stateful_widget(tasks, chunks[0], &mut app.tasks.state);
-
-            // Draw logs
-            let info_style = Style::default().fg(Color::Blue);
-            let warning_style = Style::default().fg(Color::Yellow);
-            let error_style = Style::default().fg(Color::Magenta);
-            let critical_style = Style::default().fg(Color::Red);
-            let logs: Vec<ListItem> = app
-                .logs
-                .items
-                .iter()
-                .map(|&(evt, level)| {
-                    let s = match level {
-                        "ERROR" => error_style,
-                        "CRITICAL" => critical_style,
-                        "WARNING" => warning_style,
-                        _ => info_style,
-                    };
-                    let content = vec![text::Line::from(vec![
-                        Span::styled(format!("{level:<9}"), s),
-                        Span::raw(evt),
-                    ])];
-                    ListItem::new(content)
-                })
-                .collect();
-            let logs = List::new(logs).block(Block::bordered().title("List"));
-            f.render_stateful_widget(logs, chunks[1], &mut app.logs.state);
-        }
-
-        let barchart = BarChart::default()
-            .block(Block::bordered().title("Bar chart"))
-            .data(&app.barchart)
-            .bar_width(3)
-            .bar_gap(2)
-            .bar_set(if app.enhanced_graphics {
-                symbols::bar::NINE_LEVELS
-            } else {
-                symbols::bar::THREE_LEVELS
-            })
-            .value_style(
-                Style::default()
-                    .fg(Color::Black)
-                    .bg(Color::Green)
-                    .add_modifier(Modifier::ITALIC),
-            )
-            .label_style(Style::default().fg(Color::Yellow))
-            .bar_style(Style::default().fg(Color::Green));
-        f.render_widget(barchart, chunks[1]);
-    }
-    if app.show_chart {
-        let x_labels = vec![
-            Span::styled(
-                format!("{}", app.signals.window[0]),
-                Style::default().add_modifier(Modifier::BOLD),
-            ),
-            Span::raw(format!(
-                "{}",
-                (app.signals.window[0] + app.signals.window[1]) / 2.0
-            )),
-            Span::styled(
-                format!("{}", app.signals.window[1]),
-                Style::default().add_modifier(Modifier::BOLD),
-            ),
-        ];
-        let datasets = vec![
-            Dataset::default()
-                .name("data2")
-                .marker(symbols::Marker::Dot)
-                .style(Style::default().fg(Color::Cyan))
-                .data(&app.signals.sin1.points),
-            Dataset::default()
-                .name("data3")
-                .marker(if app.enhanced_graphics {
-                    symbols::Marker::Braille
-                } else {
-                    symbols::Marker::Dot
-                })
-                .style(Style::default().fg(Color::Yellow))
-                .data(&app.signals.sin2.points),
-        ];
-        let chart = Chart::new(datasets)
-            .block(
-                Block::bordered().title(Span::styled(
-                    "Chart",
-                    Style::default()
-                        .fg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD),
-                )),
-            )
-            .x_axis(
-                Axis::default()
-                    .title("X Axis")
-                    .style(Style::default().fg(Color::Gray))
-                    .bounds(app.signals.window)
-                    .labels(x_labels),
-            )
-            .y_axis(
-                Axis::default()
-                    .title("Y Axis")
-                    .style(Style::default().fg(Color::Gray))
-                    .bounds([-20.0, 20.0])
-                    .labels(vec![
-                        Span::styled("-20", Style::default().add_modifier(Modifier::BOLD)),
-                        Span::raw("0"),
-                        Span::styled("20", Style::default().add_modifier(Modifier::BOLD)),
-                    ]),
-            );
-        f.render_widget(chart, chunks[1]);
-    }
-}
 
 fn draw_text(f: &mut Frame, area: Rect) {
     let text = vec![
@@ -269,79 +72,89 @@ fn draw_text(f: &mut Frame, area: Rect) {
     f.render_widget(paragraph, area);
 }
 
-fn draw_second_tab(f: &mut Frame, app: &mut App, area: Rect) {
+fn draw_first_tab(f: &mut Frame, app: &mut App, area: Rect) {
     let chunks =
         Layout::horizontal([Constraint::Percentage(30), Constraint::Percentage(70)]).split(area);
-    let up_style = Style::default().fg(Color::Green);
-    let failure_style = Style::default()
-        .fg(Color::Red)
-        .add_modifier(Modifier::RAPID_BLINK | Modifier::CROSSED_OUT);
-    let rows = app.servers.iter().map(|s| {
-        let style = if s.status == "Up" {
-            up_style
-        } else {
-            failure_style
-        };
-        Row::new(vec![s.name, s.location, s.status]).style(style)
+
+    let h_chunks = Layout::vertical([Constraint::Length(3), Constraint::Fill(1), Constraint::Length(3)]).split(chunks[0]);
+
+    let table = Table::new(
+        [Row::new(vec![format!("> {}", app.input)]).style(Style::default().bold())],
+        [
+            Constraint::Min(0),
+        ],
+    )
+    .block(Block::bordered().title("Input"));
+    f.render_widget(table, h_chunks[0]);
+
+    let rows = app.trace_result.iter().enumerate().map(|(_, t)| {
+        Row::new(vec![t.no.clone(), t.ip.clone(), t.name.clone(), t.time.clone()]).style(Style::default())
     });
     let table = Table::new(
         rows,
         [
-            Constraint::Length(15),
-            Constraint::Length(15),
+            Constraint::Length(5),
+            Constraint::Length(16),
+            Constraint::Fill(1),
             Constraint::Length(10),
         ],
     )
     .header(
-        Row::new(vec!["Server", "Location", "Status"])
+        Row::new(vec!["No.", "IP", "Name", "Time"])
             .style(Style::default().fg(Color::Yellow))
             .bottom_margin(1),
     )
     .block(Block::bordered().title("Servers"));
-    f.render_widget(table, chunks[0]);
+    f.render_widget(table, h_chunks[1]);
+
+    let table = Table::new(
+        [Row::new(vec![format!(" {}", app.status.clone())]).style(
+            if app.error {
+                Style::default().red().bold()
+            }
+            else {
+                Style::default().green().bold()
+            }
+        )],
+        [
+            Constraint::Min(0),
+        ],
+    )
+        .block(Block::bordered().title("Status"));
+    f.render_widget(table, h_chunks[2]);
 
     let map = Canvas::default()
-        .block(Block::bordered().title("World"))
+        .block(Block::bordered().title("World - TAB to enable borders"))
         .paint(|ctx| {
-            ctx.draw(&Map {
-                color: Color::White,
-                resolution: MapResolution::High,
+            ctx.draw(&CMap {
+                data: if app.show_countries { app.data_countries.clone() } else { app.data_world.clone() },
+                pos: app.map_pos,
+                zoom: app.zoom
             });
             ctx.layer();
-            ctx.draw(&Rectangle {
-                x: 0.0,
-                y: 30.0,
-                width: 10.0,
-                height: 10.0,
-                color: Color::Yellow,
-            });
-            ctx.draw(&Circle {
-                x: app.servers[2].coords.1,
-                y: app.servers[2].coords.0,
-                radius: 10.0,
-                color: Color::Green,
-            });
-            for (i, s1) in app.servers.iter().enumerate() {
-                for s2 in &app.servers[i + 1..] {
-                    ctx.draw(&canvas::Line {
-                        x1: s1.coords.1,
-                        y1: s1.coords.0,
-                        y2: s2.coords.0,
-                        x2: s2.coords.1,
-                        color: Color::Yellow,
-                    });
-                }
+            for (i, s1) in app.trace_result.iter().enumerate().filter(|(_, x)| !x.lat.is_nan()) {
+                let Some(s2) = app.trace_result.iter().skip(i + 1).filter(|x| !x.lat.is_nan()).next() else { break; };
+
+                let (x1, y1) = conv_coords(s1.long, s1.lat, app.zoom, app.map_pos);
+                let (x2, y2) = conv_coords(s2.long, s2.lat, app.zoom, app.map_pos);
+
+                let (x1, y1, x2, y2) = constrain(x1, y1, x2, y2);
+
+                ctx.draw(&canvas::Line {
+                    x1: x1 as f64,
+                    y1: y1 as f64,
+                    x2: x2 as f64,
+                    y2: y2 as f64,
+                    color: Color::Yellow,
+                });
             }
-            for server in &app.servers {
-                let color = if server.status == "Up" {
-                    Color::Green
-                } else {
-                    Color::Red
-                };
+
+            for s in &app.trace_result {
+                let (x1, y1) = conv_coords(s.long, s.lat, app.zoom, app.map_pos);
                 ctx.print(
-                    server.coords.1,
-                    server.coords.0,
-                    Span::styled("X", Style::default().fg(color)),
+                    x1 as f64,
+                    y1 as f64,
+                    Span::styled("X", Style::default().green()),
                 );
             }
         })
@@ -350,51 +163,78 @@ fn draw_second_tab(f: &mut Frame, app: &mut App, area: Rect) {
         } else {
             symbols::Marker::Dot
         })
-        .x_bounds([-180.0, 180.0])
-        .y_bounds([-90.0, 90.0]);
+        .x_bounds([0.0, 1.0])
+        .y_bounds([0.0, 1.0]);
     f.render_widget(map, chunks[1]);
 }
 
-fn draw_third_tab(f: &mut Frame, _app: &mut App, area: Rect) {
-    let chunks = Layout::horizontal([Constraint::Ratio(1, 2), Constraint::Ratio(1, 2)]).split(area);
-    let colors = [
-        Color::Reset,
-        Color::Black,
-        Color::Red,
-        Color::Green,
-        Color::Yellow,
-        Color::Blue,
-        Color::Magenta,
-        Color::Cyan,
-        Color::Gray,
-        Color::DarkGray,
-        Color::LightRed,
-        Color::LightGreen,
-        Color::LightYellow,
-        Color::LightBlue,
-        Color::LightMagenta,
-        Color::LightCyan,
-        Color::White,
-    ];
-    let items: Vec<Row> = colors
-        .iter()
-        .map(|c| {
-            let cells = vec![
-                Cell::from(Span::raw(format!("{c:?}: "))),
-                Cell::from(Span::styled("Foreground", Style::default().fg(*c))),
-                Cell::from(Span::styled("Background", Style::default().bg(*c))),
-            ];
-            Row::new(cells)
-        })
-        .collect();
-    let table = Table::new(
-        items,
-        [
-            Constraint::Ratio(1, 3),
-            Constraint::Ratio(1, 3),
-            Constraint::Ratio(1, 3),
-        ],
-    )
-    .block(Block::bordered().title("Colors"));
-    f.render_widget(table, chunks[0]);
+fn constrain(mut x1: f32, mut y1: f32, mut x2: f32, mut y2: f32) -> (f32, f32, f32, f32) {
+    if x2 == x1 || y1 == y2 {
+        return (x1, y1, x2, y2)
+    }
+    if x1 == x2 {
+        return (x1, y1.max(0.0).min(1.0), x2, y2.max(0.0).min(1.0));
+    }
+    if y1 == y2 {
+        return (x1.max(0.0).min(1.0), y1, x2.max(0.0).min(1.0), y2);
+    }
+    let gradient = (y2 - y1) / (x2 - x1);
+    let inv_grad = 1.0 / gradient;
+
+    if x1 < 0.0 || y1 < 0.0 {
+        let y_int = y1 - (gradient * x1);
+        let x_int = x1 - (inv_grad * y1);
+        if x_int > y_int {
+            x1 = x_int;
+            y1 = 0.0;
+        }
+        else {
+            y1 = y_int;
+            x1 = 0.0;
+        }
+    }
+
+    if x1 > 1.0 || y1 > 1.0 {
+        let y_int = y1 - (gradient * (x1 + 1.0));
+        let x_int = x1 - (inv_grad * (y1 + 1.0));
+        if x_int < y_int {
+            x1 = x_int;
+            y1 = 1.0;
+        }
+        else {
+            y1 = y_int;
+            x1 = 1.0;
+        }
+    }
+
+    let gradient = (y1 - y2) / (x1 - x2);
+    let inv_grad = 1.0 / gradient;
+
+    if x2 < 0.0 || y2 < 0.0 {
+        let y_int = y2 - (gradient * x2);
+        let x_int = x2 - (inv_grad * y2);
+        if x_int > y_int {
+            x2 = x_int;
+            y2 = 0.0;
+        }
+        else {
+            y2 = y_int;
+            x2 = 0.0;
+        }
+    }
+
+    if x2 > 1.0 || y2 > 1.0 {
+        let y_int = y2 - (gradient * (x2 + 1.0));
+        let x_int = x2 - (inv_grad * (y2 + 1.0));
+        if x_int < y_int {
+            x2 = x_int;
+            y2 = 1.0;
+        }
+        else {
+            y2 = y_int;
+            x2 = 1.0;
+        }
+    }
+
+    (x1, y1, x2, y2)
 }
