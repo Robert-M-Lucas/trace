@@ -1,0 +1,12 @@
+[package]
+name = "term_test"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+argh = "0.1.12"
+crossterm = "0.27.0"
+image = "0.25.1"
+itertools = "0.13.0"
+rand = "0.8.5"
+ratatui = { version = "0.27.0", features = ["crossterm"] }
